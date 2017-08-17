@@ -52,7 +52,7 @@
         _renderBuffer = 0;
     }
     if (_frameBuffer) {
-        glDeleteRenderbuffers(1, &_frameBuffer);
+        glDeleteFramebuffers(1, &_frameBuffer);
         _frameBuffer = 0;
     }
     
@@ -90,6 +90,17 @@
     
     // 将指定renderBuffer渲染在屏幕上
     [self.context presentRenderbuffer:GL_RENDERBUFFER];
+    
+    
+    UIImage *image = [self getResultImage];
+
+    if (image) {
+        UIImageView *imageView = [[UIImageView alloc] initWithFrame:CGRectMake(100, CGRectGetHeight(self.view.frame) - 100, (CGRectGetWidth(self.view.frame) - 200) / 2, 100)];
+        imageView.backgroundColor = [UIColor lightGrayColor];
+        imageView.contentMode = UIViewContentModeScaleAspectFit;
+        imageView.image = image;
+        [self.view addSubview:imageView];
+    }
 }
 
 
@@ -239,4 +250,30 @@
     return glProgram;
 }
 
+- (UIImage *)getResultImage {
+    CGSize currentFBOSize = self.view.frame.size;
+    NSUInteger totalBytesForImage = (int)currentFBOSize.width * (int)currentFBOSize.height * 4;
+    GLubyte *rawImagePixelsTemp = (GLubyte *)malloc(totalBytesForImage);
+    glReadPixels(0, 0, (int)currentFBOSize.width, (int)currentFBOSize.height, GL_RGBA, GL_UNSIGNED_BYTE, rawImagePixelsTemp);
+    glUseProgram(0);
+    //从FBO中读取图像数据，离屏渲染
+    // 图像经过render之后，已经在FBO中了，即使不将其拿到RenderBuffer中，依然可以使用getResultImage取到图像数据。
+    // 用[_eaglContext presentRenderbuffer:GL_RENDERBUFFER];，实际上就是将FBO中的图像拿到RenderBuffer中（即屏幕上）
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    CGDataProviderRef dataProvider = CGDataProviderCreateWithData(NULL, rawImagePixelsTemp, totalBytesForImage, (CGDataProviderReleaseDataCallback)&freeData);
+    CGColorSpaceRef defaultRGBColorSpace = CGColorSpaceCreateDeviceRGB();
+    
+    CGImageRef cgImageFromBytes = CGImageCreate((int)currentFBOSize.width, (int)currentFBOSize.height, 8, 32, 4 * (int)currentFBOSize.width, defaultRGBColorSpace, kCGBitmapByteOrderDefault, dataProvider, NULL, NO, kCGRenderingIntentDefault);
+    UIImage *finalImage = [UIImage imageWithCGImage:cgImageFromBytes scale:1.0 orientation:UIImageOrientationDownMirrored];
+    
+    CGImageRelease(cgImageFromBytes);
+    CGDataProviderRelease(dataProvider);
+    CGColorSpaceRelease(defaultRGBColorSpace);
+    
+    return finalImage;
+}
+
+void freeData(void *info, const void *data, size_t size) {
+    free((unsigned char *)data);
+}
 @end
